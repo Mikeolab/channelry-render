@@ -1,0 +1,112 @@
+# channelry-render
+
+Standalone render worker for **Channelry** faceless videos. It polls the
+Cloudflare queue through the existing `render-workers` API, downloads the
+per-beat assets the job carries, chops character backgrounds out with RemBG,
+composes each scene (background + positioned characters), synthesizes the
+dialogue with edge-tts, renders with FFmpeg, uploads `final.mp4` to R2, and
+reports completion — so the finished video appears in the user's Runs.
+
+```
+GitHub runner ─ HTTPS→ Cloudflare API (heartbeat/claim/progress/complete)
+            └── HTTPS→ R2 (download assets, upload final.mp4)
+```
+
+**Everything is outbound.** The runner is ephemeral and dynamically
+addressed — it never depends on a stable/allowlisted IP, and Cloudflare never
+calls it. This is what lets a freshly-provisioned GitHub-hosted runner pick
+up a job and be destroyed right after.
+
+---
+
+## Queue contract (already implemented by the backend — we reuse it)
+
+| Endpoint (backend) | Purpose |
+|---|---|
+| `POST /api/render-workers/heartbeat` | register before claim; refresh `last_seen_at` |
+| `POST /api/render-workers/claim` | atomically claim one `queued` job (or none) |
+| `GET  /api/render-workers/jobs/{id}/status` | cancellation / status check |
+| `PATCH /api/render-workers/jobs/{id}` | `status` = `rendering`/`done`/`failed`, `progress`, `video_url` |
+
+Auth is `Authorization: Bearer <CHANNELRY_RENDER_WORKER_TOKEN>` — the
+existing server-to-server `WORKER_TOKEN` on the channelry-admin Worker (the
+plan’s “RENDERER_TOKEN”). It grants queue/report only, never admin.
+
+The renderer handles the `character_video` + `auto_cast` job kind
+(`settings.method === "character_video"`, `settings.beats[]`), which is the
+flow the new editor produces. Other job kinds are reported `failed` with a
+clear “unsupported render method” reason rather than hanging.
+
+### Beat shape handled (matches the backend’s `body.beats` contract)
+
+```jsonc
+{
+  "characters": [
+    { "image_url": "…R2…", "x": 0.5, "y": 0.92, "scale": 0.6, "voice": "…", "dialogue": "…" }
+  ],
+  "background_url": "…R2…",
+  "dialogue": "…",
+  "voice": "en-GB-SoniaNeural"
+}
+```
+
+The full character image is downloaded and background-removed **here at render
+time** — the editor deliberately shows the untouched image (plan §6).
+
+---
+
+## Run locally (Docker)
+
+```bash
+cp .env.example .env   # fill in real values
+docker build -t channelry-render .
+# long-running worker:
+docker run --env-file .env channelry-render
+# bounded batch (one job) then exit:
+docker run --env-file .env channelry-render --once
+```
+
+## Run locally without Docker (quick smoke test)
+
+```bash
+pip install -r requirements.txt
+CHANNELRY_FORCE_NO_REMBG=1 python -c \
+  "import os,sys;sys.path.insert(0,'.');import tests.smoke as s;s.main()"
+```
+
+`tests/smoke.py` proves the whole compose→voice→ffmpeg→concat pipeline against
+local files (no Cloudflare/R2), so you can validate rendering before wiring the
+runner to the real queue.
+
+---
+
+## Deploy targets
+
+- **GitHub Actions** — `.github/workflows/render.yml` (ephemeral runner;
+  heartbeat + claim + render, then finish so the VM is reaped).
+- **VPS / GCP / AWS / dev** — same Docker image, `--max-jobs 0` (forever).
+
+The Docker image is the same everywhere — you only change the compute
+provider (plan §22). Background removal (`renderer/background_removal/`) is an
+isolated component you can swap for another provider without touching the
+editor or queue (plan §21).
+
+---
+
+## Secrets (names only — never commit values)
+
+`CHANNELRY_CLOUD_API_URL`, `CHANNELRY_RENDER_WORKER_TOKEN`,
+`CHANNELRY_RENDER_WORKER_ID`, `CHANNELRY_RENDER_WORKER_NAME`,
+`CHANNELRY_R2_ENDPOINT`, `CHANNELRY_R2_BUCKET`,
+`CHANNELRY_R2_ACCESS_KEY_ID`, `CHANNELRY_R2_SECRET_ACCESS_KEY`,
+`CHANNELRY_R2_PUBLIC_BASE_URL`.
+
+Keep them in GitHub Actions Secrets / Wrangler secrets / Docker `-e` flags.
+Never put a working value in this repo, the Dockerfile, logs, or a scene
+config. See `.env.example` for the full list.
+
+## Security notes
+
+- No secrets in source; the render token is server-to-server only.
+- The final video + assets are transient on the runner (ephemeral disk).
+- Everything of record lives in Cloudflare / R2 (jobs, users, credits, videos).
