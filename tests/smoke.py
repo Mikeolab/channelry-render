@@ -57,7 +57,7 @@ def main():
         raise RuntimeError("offline: unexpected download " + url)
 
     def local_upload_video(job_id, local_path):
-        dst = str(tmp / "final.mp4")
+        dst = str(tmp / f"{job_id}.mp4")
         shutil.copyfile(local_path, dst)
         return "file://" + dst
 
@@ -94,8 +94,27 @@ def main():
     url, snapshot = render.render_character_video(job["id"], job)
     print("FINAL_URL:", url)
     print("SNAPSHOT:", json.dumps(snapshot, indent=2))
-    final = tmp / "final.mp4"
+    final = tmp / "smoke-test-job.mp4"
     print("FINAL_SIZE:", os.path.getsize(final) if final.exists() else 0)
+
+    # Also exercise a classic single-character (still/walk) job.
+    still_job = {
+        "id": "smoke-still-job",
+        "mode": "motion_video",
+        "settings": {
+            "kind": "motion_video",
+            "method": "still",
+            "image_url": "file://" + str(ch_path),
+            "background_url": "file://" + str(bg_path),
+            "dialogue": "A classic still render check.",
+            "voice": "en-US-AriaNeural",
+        },
+    }
+    url2, snap2 = render.render_single_character(still_job["id"], still_job, "still")
+    still_out = tmp / "smoke-still-job.mp4"
+    print("STILL_URL:", url2)
+    print("STILL_SNAPSHOT:", json.dumps(snap2, indent=2))
+    print("STILL_SIZE:", os.path.getsize(still_out) if still_out.exists() else "missing")
 
 
 if __name__ == "__main__":

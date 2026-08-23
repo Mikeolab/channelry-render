@@ -98,6 +98,60 @@ def _beat_dialogue(beat: dict, scene_chars: list) -> str:
 def _beat_voice(beat: dict) -> str:
     v = str(beat.get("voice") or "").strip()
     return v or config.DEFAULT_VOICE
+
+
+def _single_character_entry(settings: dict, ws: Path) -> dict | None:
+    """Build a bg-removed single-character entry from image_url settings."""
+    url = str(settings.get("image_url") or "").strip()
+    if not url:
+        return None
+    return _cut_character({"image_url": url, "x": 0.5, "y": 0.92, "scale": 0.6}, ws, {})
+
+
+def render_single_character(job_id: str, job: dict, method: str) -> tuple[str, list]:
+    """Render classic single-character methods (still / walk).
+
+    Both carry a single image_url (+ optional background_url) and an optional
+    dialogue + voice + duration. Produces one composed clip (image + TTS),
+    uploaded as final.mp4. Motion (walk_across / intensity) is currently
+    rendered as a static composed scene — action/motion plugins are future
+    hooks, exact backend settings shape is preserved.
+    """
+    settings = parse_settings(job)
+    ws = assets.make_workspace(job_id)
+
+    bg_url = str(settings.get("background_url") or "").strip()
+    bg_path = _download(bg_url, ws, "bg") if bg_url else None
+
+    entry = _single_character_entry(settings, ws)
+    if not entry:
+        raise RenderJobError(f"{method} job has no image_url to render")
+
+    w, h = config.OUTPUT_WIDTH, config.OUTPUT_HEIGHT
+    frame = compose_scene(
+        bg_path,
+        [{"path": entry["path"], "x": entry["x"], "y": entry["y"], "scale": entry["scale"]}],
+        w,
+        h,
+    )
+    frame_path = ws / "clips" / "frame-0.png"
+    frame.save(frame_path)
+
+    dialogue = str(settings.get("dialogue") or "").strip()
+    audio_path = None
+    if dialogue:
+        audio_path = voice.synthesize(dialogue, settings.get("voice"), str(ws / "clips" / "voice-0.mp3"))
+
+    clip_path = ws / "clips" / "scene-0.mp4"
+    ffmpeg.encode_scene_clip(
+        str(frame_path), audio_path, str(clip_path), w, h,
+        duration=settings.get("duration"),
+    )
+    final_path = str(ws / "final.mp4")
+    ffmpeg.concat_clips([clip_path], final_path, w, h)
+    url = cloud.upload_video(job_id, final_path)
+    snapshot = [{"index": 0, "background": bg_url, "characters": [entry["name"]], "line": dialogue}]
+    return url, snapshot
 def render_character_video(job_id: str, job: dict) -> tuple[str, list]:
     """Render a character_video + auto_cast job.
 

@@ -60,8 +60,10 @@ jobs:
         env:
           CHANNELRY_CLOUD_API_URL: ${{ secrets.CHANNELRY_CLOUD_API_URL }}
           CHANNELRY_RENDER_WORKER_TOKEN: ${{ secrets.CHANNELRY_RENDER_WORKER_TOKEN }}
-          CHANNELRY_RENDER_WORKER_ID: ${{ secrets.CHANNELRY_RENDER_WORKER_ID }}
-          CHANNELRY_RENDER_WORKER_NAME: ${{ secrets.CHANNELRY_RENDER_WORKER_NAME }}
+          # Ephemeral runner identity — unique per workflow run so the queue
+          # sees a distinct renderer each time (never a shared/stale worker).
+          CHANNELRY_RENDER_WORKER_ID: github-runner-${{ github.run_id }}
+          CHANNELRY_RENDER_WORKER_NAME: github-runner-${{ github.run_id }}
           CHANNELRY_R2_ENDPOINT: ${{ secrets.CHANNELRY_R2_ENDPOINT }}
           CHANNELRY_R2_BUCKET: ${{ secrets.CHANNELRY_R2_BUCKET }}
           CHANNELRY_R2_ACCESS_KEY_ID: ${{ secrets.CHANNELRY_R2_ACCESS_KEY_ID }}

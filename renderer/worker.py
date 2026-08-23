@@ -16,6 +16,19 @@ from .background_removal import backend_name
 
 log = logging.getLogger("render.worker")
 
+# Methods this worker can render. Reported in the heartbeat meta so the queue
+# can later select a capable renderer (plan §25) without the frontend caring.
+SUPPORTED_METHODS = ("character_video", "still", "walk")
+
+
+def capabilities() -> dict:
+    return {
+        "runner": "github-actions",
+        "rembg": backend_name(),
+        "methods": list(SUPPORTED_METHODS),
+        "renderer_type": "cpu-ffmpeg",
+    }
+
 
 def handle_job(job: dict) -> None:
     job_id = str(job.get("id") or "")
@@ -30,16 +43,19 @@ def handle_job(job: dict) -> None:
     try:
         if method == "character_video":
             url, snapshot = render.render_character_video(job_id, job)
-            cloud.report(
-                job_id, "done", 100, "uploading final video",
-                video_url=url, scene_snapshot=snapshot,
-            )
-            log.info("job %s COMPLETED -> %s", job_id, url)
+        elif method in ("still", "walk"):
+            url, snapshot = render.render_single_character(job_id, job, method)
         else:
             cloud.report(
                 job_id, "failed", 100,
-                error=f"unsupported render method '{method}'",
+                error=f"unsupported render method '{method}' (supported: {', '.join(SUPPORTED_METHODS)})",
             )
+            return
+        cloud.report(
+            job_id, "done", 100, "uploading final video",
+            video_url=url, scene_snapshot=snapshot,
+        )
+        log.info("job %s COMPLETED -> %s", job_id, url)
     except render.RenderJobError as exc:
         log.error("job %s failed (job-level): %s", job_id, exc)
         cloud.report(job_id, "failed", 100, error=str(exc))
@@ -50,7 +66,7 @@ def handle_job(job: dict) -> None:
 
 def run_once() -> bool:
     """Heartbeat then attempt one claim. Returns True if a job was handled."""
-    cloud.heartbeat({"backend": backend_name(), "runner": "github-actions"})
+    cloud.heartbeat(capabilities())
     job = cloud.claim()
     if not job:
         return False

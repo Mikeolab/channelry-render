@@ -32,10 +32,11 @@ Auth is `Authorization: Bearer <CHANNELRY_RENDER_WORKER_TOKEN>` — the
 existing server-to-server `WORKER_TOKEN` on the channelry-admin Worker (the
 plan’s “RENDERER_TOKEN”). It grants queue/report only, never admin.
 
-The renderer handles the `character_video` + `auto_cast` job kind
-(`settings.method === "character_video"`, `settings.beats[]`), which is the
-flow the new editor produces. Other job kinds are reported `failed` with a
-clear “unsupported render method” reason rather than hanging.
+The renderer handles the `character_video` + `auto_cast` job kind (the flow
+the new editor produces), plus the classic single-character `still` / `walk`
+methods (`settings.method`, `settings.image_url`). Other job kinds are
+reported `failed` with a clear “unsupported render method” reason rather than
+hanging.
 
 ### Beat shape handled (matches the backend’s `body.beats` contract)
 
@@ -95,15 +96,21 @@ editor or queue (plan §21).
 
 ## Secrets (names only — never commit values)
 
+For GitHub Actions you need **7 secrets** (the token + 5 R2 values + the API URL);
+the worker id/name are auto-generated per run and need not be set:
+
 `CHANNELRY_CLOUD_API_URL`, `CHANNELRY_RENDER_WORKER_TOKEN`,
-`CHANNELRY_RENDER_WORKER_ID`, `CHANNELRY_RENDER_WORKER_NAME`,
 `CHANNELRY_R2_ENDPOINT`, `CHANNELRY_R2_BUCKET`,
 `CHANNELRY_R2_ACCESS_KEY_ID`, `CHANNELRY_R2_SECRET_ACCESS_KEY`,
 `CHANNELRY_R2_PUBLIC_BASE_URL`.
 
-Keep them in GitHub Actions Secrets / Wrangler secrets / Docker `-e` flags.
-Never put a working value in this repo, the Dockerfile, logs, or a scene
-config. See `.env.example` for the full list.
+Optional/local: `CHANNELRY_RENDER_WORKER_ID`, `CHANNELRY_RENDER_WORKER_NAME`
+(defaults to github-runner; a fresh value per job is expected on ephemeral
+runners). Keep everything in GitHub Actions Secrets / Wrangler secrets /
+Docker `-e` flags — never in this repo, the Dockerfile, logs, or a scene
+config. `CHANNELRY_RENDER_WORKER_TOKEN` is the existing `WORKER_TOKEN` secret
+on the channelry-admin Worker (the renderer's credential; server-to-server
+only).
 
 ## Security notes
 
