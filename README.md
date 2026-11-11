@@ -38,6 +38,31 @@ methods (`settings.method`, `settings.image_url`). Other job kinds are
 reported `failed` with a clear “unsupported render method” reason rather than
 hanging.
 
+### Talking-head mode: `sadtalker` (photo + audio -> talking head)
+
+A job with ``settings.method == "sadtalker"`` (and ``USE_SADTALKER=1`` in the
+runner environment) renders a still photo + driving audio into a talking-head
+video (lip movement + head motion) using **SadTalker** (OpenTalker/SadTalker,
+Apache 2.0) on CPU:
+
+| Job setting | Purpose |
+|-------------|---------|
+| `settings.image_url` | Still source photo |
+| `settings.audio_url` | Driving audio (voice) |
+| `settings.dialogue` | Optional caption line for the snapshot |
+
+SadTalker bakes the driven audio into the output; the renderer then
+FFmpeg-normalizes it to the standard canvas as `final.mp4`.
+
+SadTalker is CPU-only, fits in 7 GB RAM, but is slow (~2-5 min per clip at
+`--size 256 --batch_size 1`). It runs on GitHub Actions free runners **only** —
+never the spaceworker VPS. Provisioning (torch CPU wheel, SadTalker repo clone,
+checkpoint downloads) happens at Docker image build time (Dockerfile) and in
+the GitHub Actions workflow (`.github/workflows/render.yml`).
+
+Env: `USE_SADTALKER=1`, `CHANNELRY_SADTALKER_DIR`, `CHANNELRY_SADTALKER_CHECKPOINT_DIR`,
+`CHANNELRY_SADTALKER_SIZE` (default 256), `CHANNELRY_SADTALKER_PREPROCESS` (default crop).
+
 ### Beat shape handled (matches the backend’s `body.beats` contract)
 
 ```jsonc
